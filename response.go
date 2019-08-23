@@ -11,7 +11,7 @@ type Response struct {
 
 
 func (resp *Response) Status(code int) *Response{
-	resp.WriteHeader(code)
+	resp.ResponseWriter.WriteHeader(code)
 	return resp
 }
 
@@ -37,13 +37,13 @@ func (resp *Response) Html(html string) *Response {
 }
 
 func (resp *Response) Redirect(url string) {
-
 	resp.SetHeader("Location",url)
+	resp.Status(301)
+
 }
 
 func (resp *Response) WriteString(data string)  {
-
-	resp.Write([]byte(data))
+	_, _ = resp.Write([]byte(data))
 }
 
 func (resp *Response) Cookie(cookie *http.Cookie) *Response {
@@ -52,15 +52,15 @@ func (resp *Response) Cookie(cookie *http.Cookie) *Response {
 	return resp
 }
 
-func (resp *Response) Json(data interface{}) error  {
+func (resp *Response) Json(data interface{})   {
 
-	json,err :=json.Marshal(data);
+	jsonString,err :=json.Marshal(data)
 	if err != nil {
-		return nil
+		panic(err)
+		return
 	}
 	resp.ContentType("application/json;charset=utf-8")
-	resp.Write(json)
-	return err
+	_, _ = resp.Write(jsonString)
 
 
 }

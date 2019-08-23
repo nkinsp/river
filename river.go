@@ -7,38 +7,34 @@ import (
 	"runtime/debug"
 )
 
-const  (
-	DEBUG_MODE = true
-)
-
 
 type Config struct {
-	UploadMaxFileSize int64
+	UploadMaxFileSize  int64
+	MultipartMaxMemory int64
+	SessionName        string
+	SessionExpireTime  int
 }
 
-type Controller interface {}
+type Controller interface{}
 
-type HandlerFunc func(req *Request,resp *Response)
+type ErrorHandlerFunc func(req *Request, resp *Response, err IError)
 
-type ErrorHandlerFunc func(req *Request,resp *Response ,err IError)
-
-type ResultRender func(req *Request,resp *Response,result interface{})
-
-
-type HandlerInfo struct {
-	Name string
-	Func HandlerFunc
-}
+type MiddlewareFunc func(req *Request, resp *Response, next func())
 
 type Application struct {
 	http.Handler
-	Config *Config
-	Router *Router
+	Config                  *Config
+	Router                  *Router
+	Debug					bool
 	ArgumentResolversConfig *ArgumentResolversConfig
-	InterceptorRegister *InterceptorRegister
-	HandlerMap map[string]HandlerFunc
-	Handlers []string
-	ErrorHandlers map[string]ErrorHandlerFunc
+	InterceptorRegister     *InterceptorRegister
+	SessionManager          SessionManager
+	errorHandlers           map[string]ErrorHandlerFunc
+	middlewares             []MiddlewareFunc
+	viewConfig              *ViewConfig
+	viewEngine              ViewEngine
+	renders                 []RenderFunc
+
 }
 type configRoueFunc func(router *Router)
 
@@ -52,8 +48,19 @@ func (app *Application) ConfigRoute(fun configRoueFunc) *Application {
 	return app
 }
 
-func (app *Application) ConfigView()  {
+func (app *Application) ViewEngine(engineFunc func(config *ViewConfig) ViewEngine) *Application {
+	app.viewConfig = &ViewConfig{
+		Dir:        "./",
+		Prefix:     "views/",
+		Suffix:     ".html",
+		DelimLeft:  "{{",
+		DelimRight: "}}",
+		funcMap:    map[string]interface{}{},
+		Cache:      false,
 
+	}
+	app.viewEngine = engineFunc(app.viewConfig)
+	return app
 }
 
 func (app *Application) ConfigArgumentResolvers(fun configArgumentResolversFunc) *Application {
@@ -62,80 +69,127 @@ func (app *Application) ConfigArgumentResolvers(fun configArgumentResolversFunc)
 }
 
 func (app *Application) ConfigInterceptors(fun configInterceptorsFunc) *Application {
+
 	fun(app.InterceptorRegister)
 	return app
 }
 
-
 func (app *Application) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	request :=&Request{req,app,true,make(map[string]interface{})}
-	response :=&Response{resp}
+	request := &Request{
+		ResponseWriter: resp,
+		Request:        req,
+		attrMap:        map[string]interface{}{},
+		App:            app,
+		handlerNext:    true,
+	}
+	response := &Response{resp}
 	defer func() {
 		if pr := recover(); pr != nil {
 			switch pr.(type) {
-				case string:
-					app.ErrorHandler(request,response,Error500(pr.(string)))
-				default:
-					 prType := reflect.TypeOf(pr)
-					 if prType.Implements((reflect.TypeOf((*error)(nil))).Elem()) {
-						err :=pr.(error)
-						app.ErrorHandler(request,response,Error500(err.Error()))
-					 }
+			case string:
+				app.ErrorHandler(request, response, Error500(pr.(string)))
+			default:
+				prType := reflect.TypeOf(pr)
+				if prType.Implements((reflect.TypeOf((*IError)(nil))).Elem()) {
+					err := pr.(IError)
+					app.ErrorHandler(request, response, err)
+				} else if prType.Implements((reflect.TypeOf((*error)(nil))).Elem()) {
+					err := pr.(error)
+					app.ErrorHandler(request, response, Error500(err.Error()))
+				}
 			}
-			if DEBUG_MODE {
+			if app.Debug {
 				debug.PrintStack()
 			}
 		}
 	}()
-	request.ParseForm()
-	handlerIndex :=0
-	for request.handlerNext && handlerIndex < len(app.Handlers) {
-		request.handlerNext = false
-		handler :=app.HandlerMap[app.Handlers[handlerIndex]]
-		handler(request,response)
-		handlerIndex++
+	parseErr := request.ParseForm()
+	if parseErr != nil{
+		panic(parseErr)
+		return
 	}
+	//中间件
+	nextIndex := 0
+	hasNext := true
+	for hasNext && nextIndex < len(app.middlewares) {
+		hasNext = false
+		middleware := app.middlewares[nextIndex]
+		middleware(request, response, func() {
+			hasNext = true
+			nextIndex++
+		})
+	}
+	//路由匹配
+	if hasNext {
+		matchRouteHandler(request, response)
+	}
+
 }
 
 func App() *Application {
 	app := &Application{
-		Config:&Config{UploadMaxFileSize:1024*1024*10},
-		Router:&Router{map[string]RouteInfo{}},
-		ArgumentResolversConfig:&ArgumentResolversConfig{[]ArgumentResolverFunc{requestBodyArgumentResolverFunc}},
-		InterceptorRegister:&InterceptorRegister{[]*InterceptorConfig{}},
-		HandlerMap: map[string]HandlerFunc{},
-		Handlers:[]string{},
-		ErrorHandlers: map[string]ErrorHandlerFunc{"river.DefaultError":defaultErrorHandler},
+		Config: &Config{
+			UploadMaxFileSize:  1024 * 1024 * 10,
+			MultipartMaxMemory: 32 << 20,
+			SessionName:        "session",
+			SessionExpireTime:  1800,
+		},
+		Router: &Router{map[string]RouteInfo{}},
+		Debug:true,
+		ArgumentResolversConfig: &ArgumentResolversConfig{[]ArgumentResolverFunc{
+			requestResolverFunc,
+			responseResolverFunc,
+			urlValuesResolverFunc,
+			formResolverFunc,
+			requestBodyResolverFunc,
+			multipartFormResolverFunc,
+		}},
+		InterceptorRegister: &InterceptorRegister{[]*InterceptorConfig{}},
+		errorHandlers:       map[string]ErrorHandlerFunc{"river.DefaultError": defaultErrorHandler},
+		SessionManager:      &MemorySessionManager{data: map[string]interface{}{}},
+		middlewares:         []MiddlewareFunc{},
+		renders:			 []RenderFunc{
+			ViewRenderFunc,
+			RedirectRenderFunc,
+		},
 	}
-	app.SetHandler("staticFileHandler",staticFileHandler)
-	app.SetHandler("crossHandler",crossHandler)
-	app.SetHandler("matchRouteHandler",matchRouteHandler)
 	return app
 }
 
-func (app *Application) SetHandler(name string,handlerFunc HandlerFunc) *Application {
-	app.HandlerMap[name] = handlerFunc
-	app.Handlers = append(app.Handlers,name)
-	log.Println("[River] ","Handler",name)
+func (app *Application) Route(path string, controller Controller) *Application {
+	app.Router.Add(path, controller)
+	return app
+
+}
+
+func (app *Application) RouteGroup(path string, controllers ...Controller) *Application {
+	app.Router.Group(path, controllers)
+	return app
+
+}
+
+func (app *Application) Use(middlewareFunc MiddlewareFunc) *Application {
+	app.middlewares = append(app.middlewares, middlewareFunc)
 	return app
 }
 
-func (app *Application) ErrorHandler(req *Request,resp *Response, err IError)  {
-	for key,handler:= range app.ErrorHandlers{
+func (app *Application) ErrorHandler(req *Request, resp *Response, err IError) {
+	for key, handler := range app.errorHandlers {
 		if key == reflect.TypeOf(err).String() {
-			handler(req,resp,err)
+			handler(req, resp, err)
 		}
 	}
 }
 
-func (app *Application) SetErrorHandler(name string,handlerFunc ErrorHandlerFunc) *Application  {
-	app.ErrorHandlers[name] = handlerFunc
-	return  app
+func (app *Application) SetErrorHandler(name string, handlerFunc ErrorHandlerFunc) *Application {
+	app.errorHandlers[name] = handlerFunc
+	return app
 }
 
-
-func (app *Application) Run(addr string)  {
-	log.Println("[River] ","Listening and serving HTTP on ",addr )
-	http.ListenAndServe(addr,app)
+func (app *Application) Run(addr string) {
+	log.Println("[River] ", "Listening and serving HTTP on ", addr)
+	err := http.ListenAndServe(addr,app)
+	if err != nil {
+		log.Println("[River] Error ", err)
+	}
 }
-

@@ -43,7 +43,7 @@ func parseRoutePath(methodName string) (string,string) {
 	methods :=[7]string{"Get","Post","Put","Delete","Options","Patch","Trace"}
 	for _,method:=range methods  {
 		if strings.HasPrefix(methodName,method){
-			requestMethod = method;
+			requestMethod = method
 			rname := strings.Replace(methodName,method,"",-1)
 			if rname != ""{
 				if strings.HasPrefix(rname,"Path") && len(rname) > 4 {
@@ -74,14 +74,8 @@ func parseRoutePath(methodName string) (string,string) {
 	return path,requestMethod
 }
 
-func (router *Router) Controllers(controllers ...Controller)  *Router {
-	for _,controller:= range  controllers{
-		router.Group("",controller)
-	}
-	return router
-}
 
-func (router *Router) Controller(path string,controller Controller)  *Router{
+func (router *Router) Add(path string,controller Controller)  *Router{
 
 	newPath := string(path)
 	if len(newPath) > 1 && strings.HasSuffix(newPath,"/") {
@@ -94,7 +88,9 @@ func (router *Router) Controller(path string,controller Controller)  *Router{
 		newSubPath := string(newPath)
 		subPath,requestMethod := parseRoutePath(method.Name)
 		if newSubPath != "" && requestMethod != "" {
-			if subPath != "/"{
+			if subPath != "/" && newSubPath == "/" {
+				newSubPath = string(subPath)
+			} else if subPath != "/" && newSubPath != "/"{
 				newSubPath+=subPath
 			}
 			router.route(newSubPath,requestMethod,controller,method)
@@ -106,7 +102,7 @@ func (router *Router) Controller(path string,controller Controller)  *Router{
 
 
 
-func (router *Router) Group(path string,controllers ...Controller) *Router  {
+func (router *Router) Group(path string,controllers []Controller) *Router  {
 	newPath := string(path)
 	if len(newPath) > 1 && strings.HasSuffix(path,"/") {
 		newPath = strings.TrimRight(path,"/")
@@ -115,7 +111,7 @@ func (router *Router) Group(path string,controllers ...Controller) *Router  {
 		subPath := string(newPath)
 		rv :=reflect.TypeOf(controller)
 		subPath += nameToPath(strings.Replace(rv.Elem().Name(),"Controller","",-1))
-		router.Controller(subPath,controller)
+		router.Add(subPath,controller)
 	}
 	return  router;
 }

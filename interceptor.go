@@ -64,6 +64,7 @@ func (register *InterceptorRegister) Interceptor(interceptorFunc InterceptorFunc
 		interceptor:interceptorFunc,
 		patterns:[]string{},
 		excludePatterns: []string{},
+
 	}
 	register.interceptors = append(register.interceptors,interceptor)
 	return interceptor

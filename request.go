@@ -1,18 +1,18 @@
 package river
 
 import (
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 )
 
 type Request struct {
+	ResponseWriter http.ResponseWriter
 	*http.Request
 	App *Application
 	handlerNext bool
 	attrMap map[string]interface{}
-
-
 }
 
 func (req *Request) Next()  {
@@ -86,5 +86,12 @@ func (rep *Request) SetAttrs(attrs map[string]interface{}) *Request{
 		rep.SetAttr(key,value)
 	}
 	return rep
+}
+
+func (req *Request) Session() Session  {
+	if req.App.SessionManager == nil {
+		panic(errors.New("SessionMan is nil"))
+	}
+	return req.App.SessionManager.Get(req)
 
 }
