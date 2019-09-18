@@ -1,97 +1,63 @@
 package river
 
 import (
-	"fmt"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
+	"io"
 	"net/http"
-	"sync"
-	"github.com/satori/go.uuid"
 )
 
 type Session interface {
-
 	Id() string
-	Get(name string) (interface{},bool)
-	Set(name string,value interface{})
+	Get(name string) interface{}
+	Set(name string, value interface{})
 	Remove(name ...string)
+}
 
+type SessionConfig struct {
+	Name       string
+	Domain     string
+	Path       string
+	HttpOnly   bool
+	ExpireTime int
 }
 
 type SessionManager interface {
-
-
 	Get(request *Request) Session
-
-
-
 }
 
 type ConfigSessionFunc func(request *Request)
 
+func randSessionId() string {
 
-
-type MemorySession struct {
-
-	id string
-	data map[string]interface{}
-
-}
-
-type MemorySessionManager struct {
-
-	data map[string]interface{}
-	lock sync.Mutex
-}
-
-func (manager *MemorySessionManager) Get(req *Request) Session  {
-
-	fmt.Println("rhost::",req.Host)
-	manager.lock.Lock()
-	defer manager.lock.Unlock()
-	config := req.App.Config
-	cookie,err := req.Cookie(config.SessionName)
-
+	b := make([]byte, 48)
+	_, err := io.ReadFull(rand.Reader, b)
 	if err != nil {
+		panic(err)
+	}
+	sum := md5.Sum(b)
+	var data []byte
+	for _, d := range sum {
+		data = append(data, d)
+	}
+	return hex.EncodeToString(data)
+}
+
+func getSessionCookie(req *Request) *http.Cookie {
+
+	cookie, err := req.Cookie(config.Session.Name)
+	if err != nil || len(cookie.Value) != 32 {
 		cookie = &http.Cookie{
-			Name:config.SessionName,
-			Path:"/",
-			Value:uuid.NewV4().String(),
-			HttpOnly:true,
-
+			Name:     config.Session.Name,
+			Path:     config.Session.Path,
+			Value:    randSessionId(),
+			Domain:   config.Session.Domain,
+			HttpOnly: config.Session.HttpOnly,
 		}
-		http.SetCookie(req.ResponseWriter,cookie)
+
+		http.SetCookie(req.ResponseWriter, cookie)
 	}
-	session,exists := manager.data[cookie.Value]
-	if !exists {
-		session = &MemorySession{cookie.Value, map[string]interface{}{}}
-		manager.data[cookie.Value] = session
-	}
-	return session.(Session)
-}
-
-
-func (session *MemorySession) Id() string  {
-
-	return session.id
-}
-
-func (session *MemorySession) Get(name string) ( interface{},bool)  {
-	value,exists := session.data[name]
-	return value,exists
-}
-
-func (session *MemorySession) Set(name string,value interface{})  {
-
-	session.data[name] = value
+	return cookie
 
 }
-
-func (session *MemorySession) Remove(name ...string)  {
-
-	for _,key:=range name{
-		delete(session.data,key)
-	}
-
-}
-
-
-

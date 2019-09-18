@@ -6,13 +6,24 @@ import (
 	"strings"
 )
 
-type InterceptorFunc func(req *Request,resp *Response,controller interface{},method reflect.Method) bool
+type InterceptorChain struct {
+	Request    *Request
+	Response   *Response
+	IsFunc     bool
+	Controller interface{}
+	Method     reflect.Method
+	Func       RouteFunc
+}
+
+type Interceptor interface {
+	Pre(chain *InterceptorChain) bool
+}
 
 type InterceptorConfig struct {
 
 	patterns        []string
 	excludePatterns [] string
-	interceptor     InterceptorFunc
+	interceptor     Interceptor
 }
 
 type InterceptorRegister struct {
@@ -59,14 +70,13 @@ func (config *InterceptorConfig) match(path string ) bool   {
 }
 
 
-func (register *InterceptorRegister) Interceptor(interceptorFunc InterceptorFunc) *InterceptorConfig  {
-	interceptor := &InterceptorConfig{
-		interceptor:interceptorFunc,
+func (register *InterceptorRegister) Interceptor(interceptor Interceptor) *InterceptorConfig  {
+	interceptorConfig := &InterceptorConfig{
+		interceptor:interceptor,
 		patterns:[]string{},
 		excludePatterns: []string{},
-
 	}
-	register.interceptors = append(register.interceptors,interceptor)
-	return interceptor
+	register.interceptors = append(register.interceptors,interceptorConfig)
+	return interceptorConfig
 }
 

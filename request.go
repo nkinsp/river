@@ -1,6 +1,7 @@
 package river
 
 import (
+	"encoding/json"
 	"errors"
 	"io/ioutil"
 	"net/http"
@@ -10,14 +11,9 @@ import (
 type Request struct {
 	ResponseWriter http.ResponseWriter
 	*http.Request
-	App *Application
-	handlerNext bool
 	attrMap map[string]interface{}
 }
 
-func (req *Request) Next()  {
-	req.handlerNext = true
-}
 
 func (req *Request) Param(name string,defaultValue ...string) string{
 	value := req.Form.Get(name)
@@ -27,7 +23,7 @@ func (req *Request) Param(name string,defaultValue ...string) string{
 	return value
 }
 
-func (req *Request) ParamArray(name string) []string  {
+func (req *Request) Params(name string) []string  {
 	return req.Form[name]
 }
 
@@ -52,28 +48,28 @@ func (req *Request) ParamValues(name string) []string  {
 
 	return req.Form[name]
 }
-func (req *Request) ParamStringValues(name string) []string  {
 
-	//values:= req.ParamsMap[name];
-	//stringValues
-
-	return nil
+func (req *Request) GetBody() ([]byte,error)  {
+	return ioutil.ReadAll(req.Body)
 }
 
-func (req *Request) StringBody() string  {
-	body,err :=ioutil.ReadAll(req.Body)
+
+func (req *Request) BindJsonBody(v interface{}) error  {
+	data,err := req.GetBody()
 	if err != nil {
-		return ""
+		return err
 	}
-	return string(body)
-}
-
-func (req *Request) Json()  {
-
+	return json.Unmarshal(data,v)
 }
 
 func (req *Request) GetAttr(name string) interface{}  {
 	return req.attrMap[name]
+}
+
+func (req *Request) BindForm(v interface{}) error  {
+
+	return convertFormTo(req.Form,v)
+
 }
 
 func (req *Request) SetAttr(name string,value interface{}) *Request {
@@ -81,17 +77,17 @@ func (req *Request) SetAttr(name string,value interface{}) *Request {
 	return req
 }
 
-func (rep *Request) SetAttrs(attrs map[string]interface{}) *Request{
+func (req *Request) SetAttrs(attrs map[string]interface{}) *Request{
 	for key,value:=range attrs{
-		rep.SetAttr(key,value)
+		req.SetAttr(key,value)
 	}
-	return rep
+	return req
 }
 
 func (req *Request) Session() Session  {
-	if req.App.SessionManager == nil {
-		panic(errors.New("SessionMan is nil"))
+	if config.sessionManager == nil {
+		panic(errors.New("SessionManager is nil"))
 	}
-	return req.App.SessionManager.Get(req)
+	return config.sessionManager.Get(req)
 
 }

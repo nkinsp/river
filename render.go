@@ -15,7 +15,7 @@ func ViewRenderFunc(req *Request,resp *Response,v reflect.Value) (support bool) 
 	strValue := v.String()
 	if strings.HasPrefix(strValue,"view:"){
 		view := strings.Replace(strValue,"view:","",-1)
-		engine := req.App.viewEngine
+		engine := config.viewEngine
 		if engine != nil {
 			req.SetAttr("Form",req.Form)
 			engine.Render(resp.ResponseWriter,view,req.attrMap)

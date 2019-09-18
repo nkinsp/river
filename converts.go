@@ -1,8 +1,8 @@
 package river
 
 import (
+	"errors"
 	"fmt"
-	"github.com/pkg/errors"
 	"log"
 	"net/url"
 	"reflect"
@@ -53,7 +53,12 @@ func stringConvertTo(v string,t reflect.Type) (reflect.Value,error)  {
 			return reflect.ValueOf(nil),err
 		}
 		return reflect.ValueOf(b),nil
+	case reflect.Interface:
+		fmt.Println(t.Name(),"===")
+		return reflect.ValueOf(v).Convert(t),nil
+
 	}
+
 
 	return reflect.ValueOf(nil),errors.New("No match "+t.Kind().String())
 }
@@ -77,7 +82,6 @@ func  stringTo(v []string,t reflect.Value) error {
 		if err != nil {
 			return  err
 		}
-		fmt.Println("ssss")
 		t.Set(value)
 	}
 
@@ -86,7 +90,7 @@ func  stringTo(v []string,t reflect.Value) error {
 
 }
 
-func ConvertFormTo(form url.Values, v interface{}) error  {
+func convertFormTo(form url.Values, v interface{}) error  {
 
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {

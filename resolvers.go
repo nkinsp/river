@@ -1,9 +1,7 @@
 package river
 
 import (
-	"encoding/json"
-	"github.com/pkg/errors"
-	"io/ioutil"
+	"errors"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -28,12 +26,6 @@ type ArgumentResolverFunc func(chain *ResolverChain) (reflect.Value, bool)
 type Form struct {
 	data url.Values
 }
-
-type RequestBody interface {
-
-	RequestBody()
-}
-
 
 func (form *Form) String(name string) string  {
 	return form.data.Get(name)
@@ -63,8 +55,7 @@ func (arc *ArgumentResolversConfig) Add(resolverFunc ArgumentResolverFunc) *Argu
 
 var (
 	responseWriterType = reflect.TypeOf((*http.ResponseWriter)(nil)).Elem()
-	requestBodyType = reflect.TypeOf((*RequestBody)(nil)).Elem()
-
+	sessionType = reflect.TypeOf((*Session)(nil)).Elem()
 )
 
 //requestResolverFunc
@@ -112,18 +103,13 @@ func requestBodyResolverFunc(chain *ResolverChain) (reflect.Value, bool)  {
 		name = chain.ParamType.Elem().Name()
 	}
 	if strings.HasSuffix(name,"JsonBody") {
-		body,err :=ioutil.ReadAll(chain.Request.Body)
-		if err != nil {
-			panic(errors.New(err.Error()))
-		}
 		var value interface{}
 		if isPtr {
 			value = reflect.New(chain.ParamType.Elem()).Interface()
 		}else{
 			value = reflect.New(chain.ParamType).Interface()
 		}
-
-		jsonErr := json.Unmarshal(body,value)
+		jsonErr := chain.Request.BindJsonBody(value)
 		if jsonErr != nil {
 			panic(errors.New(jsonErr.Error()))
 		}
@@ -148,7 +134,7 @@ func formResolverFunc(chain *ResolverChain) (reflect.Value, bool)  {
 		}else {
 			v = reflect.New(chain.ParamType.Elem()).Interface()
 		}
-		err := ConvertFormTo(chain.Request.Form,v)
+		err := chain.Request.BindForm(v)
 		if err != nil {
 			panic(errors.New(err.Error()))
 		}
@@ -163,22 +149,26 @@ func formResolverFunc(chain *ResolverChain) (reflect.Value, bool)  {
 func multipartFormResolverFunc(chain *ResolverChain) (reflect.Value, bool)  {
 	switch chain.ParamType {
 	case reflect.TypeOf(chain.Request.MultipartForm):
-		err := chain.Request.ParseMultipartForm(chain.Request.App.Config.MultipartMaxMemory)
+		err := chain.Request.ParseMultipartForm(config.MultipartMaxMemory)
 		if err != nil {
 			panic(errors.New(err.Error()))
 		}
 		return reflect.ValueOf(chain.Request.MultipartForm), true
 	case reflect.TypeOf(chain.Request.MultipartForm).Elem():
-		err := chain.Request.ParseMultipartForm(chain.Request.App.Config.MultipartMaxMemory)
+		err := chain.Request.ParseMultipartForm(config.MultipartMaxMemory)
 		if err != nil {
 			panic(errors.New(err.Error()))
 		}
 		return reflect.ValueOf(chain.Request.MultipartForm).Elem(), true
 	default:
 		return reflect.ValueOf(nil), false
-
-
 	}
+}
 
+func sessionResolverFunc(chain *ResolverChain) (reflect.Value, bool)  {
+	if chain.ParamType == sessionType {
+		return reflect.ValueOf(chain.Request.Session()),true
+	}
+	return reflect.ValueOf(nil), false
 }
 

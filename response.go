@@ -11,7 +11,7 @@ type Response struct {
 
 
 func (resp *Response) Status(code int) *Response{
-	resp.ResponseWriter.WriteHeader(code)
+	resp.WriteHeader(code)
 	return resp
 }
 
@@ -29,11 +29,16 @@ func (resp *Response) ContentType(contentType string) *Response{
 func (resp *Response) Html(html string) *Response {
 
 	resp.
-		Status(200).
 		ContentType("text/html;charset=utf-8").
 		WriteString(html)
 	return resp
 
+}
+
+func (resp *Response) View(name string,data interface{})  {
+	if config.viewEngine != nil {
+		config.viewEngine.Render(resp.ResponseWriter,name,data)
+	}
 }
 
 func (resp *Response) Redirect(url string) {
