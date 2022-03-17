@@ -26,7 +26,7 @@ type Controller interface{}
 
 type ErrorHandlerFunc func(req *Request, resp *Response, err IError)
 
-type MiddlewareFunc func(req *Request, resp *Response, next func())
+type MiddlewareFunc func(req *Request, resp *Response, next func()) error
 
 var (
 	config  *Config

@@ -1,6 +1,7 @@
 package river
 
 import (
+	"errors"
 	"log"
 	"reflect"
 )
@@ -15,7 +16,7 @@ func defaultErrorHandler(req *Request, resp *Response, err IError) {
 }
 
 //参数解析
-func resolverHandler(req *Request, resp *Response, route *RouteInfo) []reflect.Value {
+func resolverHandler(req *Request, resp *Response, route *RouteInfo) ([]reflect.Value, error) {
 
 	values := []reflect.Value{reflect.ValueOf(route.controller)}
 	typeNumIn := route.handleMethod.Type.NumIn()
@@ -30,7 +31,10 @@ func resolverHandler(req *Request, resp *Response, route *RouteInfo) []reflect.V
 			}
 			isSupport := false
 			for _, resolver := range config.resolvers {
-				value, flag := resolver(chain)
+				value, flag, err := resolver(chain)
+				if err != nil {
+					return []reflect.Value{}, err
+				}
 				if flag {
 					values = append(values, value)
 					isSupport = true
@@ -39,14 +43,11 @@ func resolverHandler(req *Request, resp *Response, route *RouteInfo) []reflect.V
 			}
 			chain = nil
 			if !isSupport {
-				panic(DefaultError{
-					400,
-					reflect.TypeOf(route.controller).String() + "." + chain.Method.Name + "(...) Param [" + chain.ParamType.String() + "] No matching type was found",
-				})
+				return []reflect.Value{}, errors.New(reflect.TypeOf(route.controller).String() + "." + chain.Method.Name + "(...) Param [" + chain.ParamType.String() + "] No matching type was found")
 			}
 		}
 	}
-	return values
+	return values, nil
 }
 
 //拦截器
@@ -104,10 +105,10 @@ func resultValueHandler(req *Request, resp *Response, resultValues []reflect.Val
 }
 
 //匹配路由
-func matchRouteHandler(router *Router, req *Request, resp *Response) (match bool) {
+func matchRouteHandler(router *Router, req *Request, resp *Response) (bool, error) {
 	route, exists := router.find(req)
 	if !exists {
-		return false
+		return false, nil
 	}
 	//拦截器
 	if interceptorHandler(router, &InterceptorChain{
@@ -118,17 +119,20 @@ func matchRouteHandler(router *Router, req *Request, resp *Response) (match bool
 		Method:     route.handleMethod,
 		Func:       route.handleFunc,
 	}) {
-		return true
+		return true, nil
 	}
 	if route.isFunc {
-		route.handleFunc(req,resp)
-		return true
+		route.handleFunc(req, resp)
+		return true, nil
 	}
 	//参数映射
-	values := resolverHandler(req, resp, route)
+	values, err := resolverHandler(req, resp, route)
+	if err != nil {
+
+	}
 	//执行
 	resultValues := route.handleMethod.Func.Call(values)
 	//结果映射
 	resultValueHandler(req, resp, resultValues)
-	return true
+	return true, nil
 }
